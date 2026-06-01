@@ -1,10 +1,12 @@
 # FreshGuard – Akıllı Gıda Bozulma Riski Takip Sistemi
 
-Ders: BOZ214 – Fiziksel Programlama
-Proje Türü: Final Projesi
-Geliştirici: Beren Şahbaz
-Üniversite: Ankara Üniversitesi
-Durum: Tamamlandı (v1.0)
+---
+
+📚 Ders: BOZ214 – Fiziksel Programlama  
+🛠️ Proje Türü: Final Projesi  
+👩‍💻 Geliştirici: Beren Şahbaz  
+🏫 Üniversite: Ankara Üniversitesi  
+✅ Durum: Tamamlandı (v1.0)
 
 ---
 
