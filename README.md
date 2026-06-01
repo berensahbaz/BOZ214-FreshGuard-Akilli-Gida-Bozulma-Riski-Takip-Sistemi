@@ -1,6 +1,5 @@
 # FreshGuard – Akıllı Gıda Bozulma Riski Takip Sistemi
 
----
 
 📚 Ders: BOZ214 – Fiziksel Programlama  
 🛠️ Proje Türü: Final Projesi  
