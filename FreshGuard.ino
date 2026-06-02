@@ -1,323 +1,559 @@
+// =====================================================
+// FRESHGUARD - AKILLI GIDA TAKIP SISTEMI
+// BOZ214 Fiziksel Programlama Final Projesi
+// Gelistirici: Beren Sahbaz
+// =====================================================
+
+
+// ================= LCD KUTUPHANESI =================
+// I2C destekli 16x2 LCD ekran kutuphanesi
 #include <LiquidCrystal_I2C.h>
 
-// LCD ekran tanımlama
+// LCD adresi: 0x27
+// 16 sutun, 2 satir
 LiquidCrystal_I2C lcd(0x27,16,2);
 
+
+// ================= HX711 LOAD CELL =================
+// HX711 kutuphanesi
 #include "HX711.h"
 
-// HX711 pinleri
+// HX711 pin tanimlari
 const int LOADCELL_DOUT_PIN = 2;
 const int LOADCELL_SCK_PIN = 3;
 
-// HX711 nesnesi oluşturma
+// HX711 nesnesi
 HX711 scale;
 
+
+// ================= DHT11 SENSOR =================
+// DHT kutuphanesi
 #include "DHT.h"
 
-// DHT11 sıcaklık sensörü pini
+// DHT11 veri pini
 #define DHTPIN 4
 
-// Sensör tipi
+// Sensor tipi
 #define DHTTYPE DHT11
 
-// DHT sensör nesnesi
+// DHT nesnesi
 DHT dht(DHTPIN, DHTTYPE);
 
-// LED ve buzzer pinleri
-int yes = 9;   // Yeşil LED
-int kir = 10;  // Kırmızı LED
-int sar = 11;  // Sarı LED
-int buz = 12;  // Buzzer
 
-// Reed switch pini
+// ================= LED VE BUZZER =================
+
+// Yesil LED pini
+int yes = 9;
+
+// Kirmizi LED pini
+int kir = 10;
+
+// Sari LED pini
+int sar = 11;
+
+// Buzzer pini
+int buz = 12;
+
+
+// ================= DIGER PINLER =================
+
+// Buton pini (aktif degil)
+int but1  = A1;
+
+// Reed switch kapak sensoru pini
 int read = A0;
 
-// Ürün takip başlangıç zamanı
-unsigned long urunBaslangic = 0;
+// Sayac degiskeni
+int say = 0;
 
-// Ürün var mı kontrol değişkeni
-bool urunVar = false;
 
+// ================= SISTEM DEGISKENLERI =================
+
+// Sistem hazir yazisinin tekrar tekrar cikmamasi icin
+bool sistemHazirGosterildi = false;
+
+// Onceki kapak durumu
+bool oncekiKapakKapali = false;
+
+// Onceki urun durumu
+bool oncekiUrunVar = false;
+
+
+// Takip suresi baslangici
+unsigned long takipBaslamaZamani = 0;
+
+
+
+// =====================================================
+// SETUP FONKSIYONU
+// Sistem ilk acildiginda bir kez calisir
+// =====================================================
 void setup() {
 
-  // Seri haberleşmeyi başlat
+  // Serial monitor baslatma
   Serial.begin(9600);
 
-  // HX711 başlat
+  // HX711 baslatma
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
 
-  // DHT11 başlat
+  // DHT11 sensor baslatma
   dht.begin();
 
-  // Reed switch giriş pini
+  // Pin modlari
+  pinMode(but1, INPUT);
   pinMode(read , INPUT);
 
-  // LED ve buzzer çıkış pinleri
   pinMode(yes, OUTPUT);
   pinMode(kir, OUTPUT);
   pinMode(sar, OUTPUT);
   pinMode(buz, OUTPUT);
 
-  // Başlangıçta tüm LED ve buzzer kapalı
+  // Tum LED ve buzzer baslangicta kapali
   digitalWrite(yes,LOW);
   digitalWrite(kir,LOW);
   digitalWrite(sar,LOW);
   digitalWrite(buz,LOW);
 
-  // LCD başlat
+  // LCD baslatma
   lcd.init();
 
-  // LCD ışığını aç
+  // LCD arka isik aktif
   lcd.backlight();
 
-  // Açılış ekranı
-  lcd.setCursor(0,0);
+
+  // ================= ACILIS EKRANI =================
+
+  lcd.setCursor(2,0);
   lcd.print("FreshGuard");
 
   lcd.setCursor(0,1);
   lcd.print("Takip Sistemi");
 
+  // 3 saniye bekleme
   delay(3000);
 
-  // LCD temizle
+  // LCD temizleme
   lcd.clear();
 }
 
+
+
+// =====================================================
+// LOOP FONKSIYONU
+// Sistem surekli bu dongu icinde calisir
+// =====================================================
 void loop() {
 
-  // Nem değerini oku
+
+  // ================= DHT11 VERI OKUMA =================
+
+  // Nem verisi okuma
   float h = dht.readHumidity();
 
-  // Sıcaklık değerini oku
+  // Sicaklik verisi okuma
   float t = dht.readTemperature();
 
-  // Sıcaklık kontrol değişkeni
-  bool sicaklikYuksek = false;
 
-  // Sıcaklık 26 dereceden büyükse riskli kabul et
-  if(t > 26) {
-    sicaklikYuksek = true;
-  }
-  else {
-    sicaklikYuksek = false;
-  }
+  // Sensor verisi okunamazsa hata ver
+  if (isnan(h) || isnan(t)) {
 
-  // Kapak durumu kontrol değişkeni
-  bool kapakKapali = false;
-
-  // Reed switch ile kapağın kapalı olup olmadığını kontrol et
-  if(!digitalRead(read)) {
-
-    kapakKapali = true;
-
-    // Kapak kapalıysa yeşil LED yanar
-    digitalWrite(yes,HIGH);
-  }
-  else {
-
-    kapakKapali = false;
-
-    // Kapak açıksa yeşil LED söner
-    digitalWrite(yes,LOW);
-  }
-
-  // Ürün algılama değişkeni
-  bool urunAlgilandi = false;
-
-  // HX711 sensörü çalışıyorsa
-  if(scale.is_ready()) {
-
-    // Sensör değerini oku
-    long reading = scale.read();
-
-    // Ürün algılama eşik değeri
-    long esik = -340000;
-
-    // Eğer eşik değerinden büyükse ürün var
-    if(reading > esik) {
-
-      urunAlgilandi = true;
-
-      // Sarı LED yanar
-      digitalWrite(sar,HIGH);
-    }
-    else {
-
-      urunAlgilandi = false;
-
-      // Sarı LED söner
-      digitalWrite(sar,LOW);
-    }
-  }
-
-  // Ürün yeni algılandıysa
-  if(urunAlgilandi && !urunVar) {
-
-    urunVar = true;
-
-    // Takip başlangıç zamanını kaydet
-    urunBaslangic = millis();
-
-    // LCD mesajı
-    lcd.clear();
-
-    lcd.setCursor(0,0);
-    lcd.print("Urun Algilandi");
-
-    lcd.setCursor(0,1);
-    lcd.print("Takip Basladi");
-
-    delay(2000);
-  }
-
-  // Ürün çıkarıldıysa
-  if(!urunAlgilandi && urunVar) {
-
-    urunVar = false;
-
-    // LCD mesajı
-    lcd.clear();
-
-    lcd.setCursor(0,0);
-    lcd.print("Urun Yok");
-
-    lcd.setCursor(0,1);
-    lcd.print("Takip Bekliyor");
-
-    delay(2000);
-  }
-
-  // Kapak açıksa uyarı ver
-  if(!kapakKapali) {
-
-    lcd.clear();
-
-    lcd.setCursor(0,0);
-    lcd.print("KAPAK ACIK!");
-
-    lcd.setCursor(0,1);
-    lcd.print("Lutfen Kapat");
-
-    // Buzzer kısa aralıklarla öter
-    digitalWrite(buz,HIGH);
-    delay(200);
-
-    digitalWrite(buz,LOW);
-    delay(200);
+    Serial.println(F("DHT sensor okunamadi!"));
 
     return;
   }
 
-  // Kapak kapalı ama ürün yoksa
-  if(kapakKapali && !urunVar) {
 
-    lcd.clear();
+  // Serial monitor ekranina verileri yazdir
+  Serial.print(F("Nem: "));
+  Serial.print(h);
 
-    lcd.setCursor(0,0);
-    lcd.print("Sistem Hazir");
+  Serial.print(F("  Sicaklik: "));
+  Serial.println(t);
 
-    lcd.setCursor(0,1);
-    lcd.print("Takip Bekliyor");
 
-    delay(2000);
+
+  // ================= KAPAK KONTROL =================
+
+  // Reed switch ile kapak kontrolu
+  bool kapakKapali = !digitalRead(read);
+
+
+  // Kapak kapaliysa yesil LED yanar
+  if(kapakKapali) {
+
+    digitalWrite(yes, HIGH);
   }
 
-  // Sıcaklık ve nem ekranı
-  lcd.clear();
-
-  lcd.setCursor(0,0);
-  lcd.print("Sic:");
-  lcd.print(t);
-
-  lcd.print("C");
-
-  lcd.setCursor(0,1);
-  lcd.print("Nem:");
-  lcd.print(h);
-
-  lcd.print("%");
-
-  delay(2000);
-
-  // Eğer ürün varsa takip süresini hesapla
-  if(urunVar) {
-
-    // Geçen süre hesabı
-    unsigned long gecenSure = millis() - urunBaslangic;
-
-    // Saniyeye çevir
-    unsigned long saniye = gecenSure / 1000;
-
-    // Demo gün hesabı
-    unsigned long demoGun = saniye / 20;
-
-    // Süre ekranı
-    lcd.clear();
-
-    lcd.setCursor(0,0);
-    lcd.print("Sure:");
-    lcd.print(saniye);
-
-    lcd.print(" sn");
-
-    lcd.setCursor(0,1);
-    lcd.print("Takip Ediliyor");
-
-    delay(2000);
-
-    // Risk analizi ekranı
-    lcd.clear();
-
-    lcd.setCursor(0,0);
-    lcd.print("Demo Gun:");
-    lcd.print(demoGun);
-
-    // Riskli durum kontrolü
-    if(sicaklikYuksek || demoGun >= 3) {
-
-      lcd.setCursor(0,1);
-      lcd.print("Durum:RISKLI");
-
-      // Kırmızı LED ve buzzer aktif
-      digitalWrite(kir,HIGH);
-      digitalWrite(buz,HIGH);
-
-      delay(500);
-
-      digitalWrite(buz,LOW);
-
-      delay(500);
-    }
-
-    // Dikkat durumu
-    else if(demoGun >= 2) {
-
-      lcd.setCursor(0,1);
-      lcd.print("Durum:DIKKAT");
-
-      digitalWrite(kir,LOW);
-      digitalWrite(buz,LOW);
-
-      delay(1000);
-    }
-
-    // Normal durum
-    else {
-
-      lcd.setCursor(0,1);
-      lcd.print("Durum:NORMAL");
-
-      digitalWrite(kir,LOW);
-      digitalWrite(buz,LOW);
-
-      delay(1000);
-    }
-  }
-
-  // Ürün yoksa kırmızı LED ve buzzer kapalı
+  // Kapak aciksa yesil LED kapanir
   else {
 
-    digitalWrite(kir,LOW);
-    digitalWrite(buz,LOW);
+    digitalWrite(yes, LOW);
+
+    sistemHazirGosterildi = false;
+  }
+
+
+
+  // ================= SICAKLIK KONTROL =================
+
+  bool sicaklikYuksek = false;
+
+  // Sicaklik 26 derecenin ustundeyse riskli kabul edilir
+  if(t > 26) {
+
+    sicaklikYuksek = true;
+  }
+
+  else {
+
+    sicaklikYuksek = false;
+  }
+
+
+
+  // =====================================================
+  // KAPAK ACIK SENARYOSU
+  // =====================================================
+  if(!kapakKapali) {
+
+    lcd.clear();
+
+    lcd.setCursor(2,0);
+    lcd.print("KAPAK ACIK!");
+
+    lcd.setCursor(1,1);
+    lcd.print("Lutfen Kapat");
+
+
+    // Buzzer kisa araliklarla uyarir
+    digitalWrite(buz, HIGH);
+    delay(150);
+
+    digitalWrite(buz, LOW);
+    delay(850);
+
+    oncekiKapakKapali = false;
+  }
+
+
+
+  // =====================================================
+  // KAPAK KAPALI SENARYOSU
+  // =====================================================
+  else {
+
+
+    // ================= SISTEM HAZIR EKRANI =================
+
+    if(sistemHazirGosterildi == false) {
+
+      lcd.clear();
+
+      lcd.setCursor(1,0);
+      lcd.print("Sistem Hazir");
+
+      lcd.setCursor(0,1);
+      lcd.print("Takip Bekleniyor");
+
+      delay(1500);
+
+      lcd.clear();
+
+      sistemHazirGosterildi = true;
+    }
+
+
+
+    // ================= URUN ALGILAMA SISTEMI =================
+
+    bool urunVar = false;
+
+
+    // HX711 baglantisi hazirsa veri oku
+    if (scale.is_ready()) {
+
+      // Ham sensor verisi
+      long reading = scale.read();
+
+      Serial.print("HX711 reading: ");
+      Serial.println(reading);
+
+
+      // Esik degeri
+      long bak = -340000.0;
+
+
+      // Sensor degeri esikten buyukse urun var
+      if(reading > bak) {
+
+        urunVar = true;
+
+        // Sari LED aktif
+        digitalWrite(sar, HIGH);
+      }
+
+      // Sensor degeri dusukse urun yok
+      else {
+
+        urunVar = false;
+
+        digitalWrite(sar, LOW);
+      }
+
+    }
+
+    else {
+
+      Serial.println("HX711 bulunamadi.");
+
+      digitalWrite(sar, LOW);
+    }
+
+
+
+    // =====================================================
+    // URUN YENI ALGILANDI
+    // =====================================================
+    if(urunVar == true && oncekiUrunVar == false) {
+
+      // Takip baslangic zamani kaydedilir
+      takipBaslamaZamani = millis();
+
+      lcd.clear();
+
+      lcd.setCursor(0,0);
+      lcd.print("Urun Algilandi");
+
+      lcd.setCursor(1,1);
+      lcd.print("Takip Basladi");
+
+      delay(1500);
+
+      lcd.clear();
+    }
+
+
+
+    // Urun yoksa sure sifirlanir
+    if(urunVar == false) {
+
+      takipBaslamaZamani = 0;
+    }
+
+
+
+    // ================= TAKIP SURESI =================
+
+    unsigned long toplamSaniye = 0;
+
+    unsigned long dakika = 0;
+
+    unsigned long saniye = 0;
+
+    int demoGun = 0;
+
+
+
+    // Urun varsa sure hesaplanir
+    if(urunVar == true && takipBaslamaZamani > 0) {
+
+      // Gecen sure hesaplama
+      unsigned long gecenSure = millis() - takipBaslamaZamani;
+
+      toplamSaniye = gecenSure / 1000;
+
+      dakika = toplamSaniye / 60;
+
+      saniye = toplamSaniye % 60;
+
+
+      // Demo gun sistemi
+      if(toplamSaniye < 20) {
+
+        demoGun = 1;
+      }
+
+      else if(toplamSaniye < 40) {
+
+        demoGun = 2;
+      }
+
+      else {
+
+        demoGun = 3;
+      }
+    }
+
+
+
+    // ================= SURE RISK ANALIZI =================
+
+    bool sureRiskli = false;
+
+
+    // Demo gun 3 ve ustu riskli kabul edilir
+    if(urunVar == true && demoGun >= 3) {
+
+      sureRiskli = true;
+    }
+
+    else {
+
+      sureRiskli = false;
+    }
+
+
+
+    // ================= URUN DURUM EKRANI =================
+
+    if(urunVar == true) {
+
+      lcd.clear();
+
+      lcd.setCursor(0,0);
+      lcd.print("Urun:VAR");
+
+      lcd.setCursor(0,1);
+      lcd.print("Takip Aktif");
+
+      delay(1500);
+
+    }
+
+    else {
+
+      lcd.clear();
+
+      lcd.setCursor(0,0);
+      lcd.print("Urun:YOK");
+
+      lcd.setCursor(0,1);
+      lcd.print("Takip Bekliyor");
+
+      delay(1500);
+    }
+
+
+
+    // ================= SICAKLIK VE NEM EKRANI =================
+
+    lcd.clear();
+
+    lcd.setCursor(0,0);
+    lcd.print("Sic:");
+    lcd.print(t);
+    lcd.print("C");
+
+    lcd.setCursor(0,1);
+    lcd.print("Nem:%");
+    lcd.print(h);
+
+    delay(1500);
+
+
+
+    // =====================================================
+    // TAKIP AKTIFSE EK BILGILER GOSTER
+    // =====================================================
+    if(urunVar == true) {
+
+      // ================= TAKIP SURESI EKRANI =================
+
+      lcd.clear();
+
+      lcd.setCursor(0,0);
+      lcd.print("Sure:");
+
+      lcd.print(dakika);
+      lcd.print("dk ");
+
+      lcd.print(saniye);
+      lcd.print("sn");
+
+      lcd.setCursor(0,1);
+      lcd.print("Takip Ediliyor");
+
+      delay(1500);
+
+
+      // ================= DURUM ANALIZI =================
+
+      lcd.clear();
+
+
+      // Sicaklik yuksekse riskli durum
+      if(sicaklikYuksek) {
+
+        lcd.setCursor(0,0);
+        lcd.print("Durum:RISKLI");
+
+        lcd.setCursor(0,1);
+        lcd.print("Sicaklik Yuksek");
+
+      }
+
+
+      // Demo gun 1 = normal
+      else if(demoGun == 1) {
+
+        lcd.setCursor(0,0);
+        lcd.print("Demo Gun:1");
+
+        lcd.setCursor(0,1);
+        lcd.print("Durum:NORMAL");
+
+      }
+
+
+      // Demo gun 2 = dikkat
+      else if(demoGun == 2) {
+
+        lcd.setCursor(0,0);
+        lcd.print("Demo Gun:2");
+
+        lcd.setCursor(0,1);
+        lcd.print("Durum:DIKKAT");
+
+      }
+
+
+      // Demo gun 3 = riskli
+      else {
+
+        lcd.setCursor(0,0);
+        lcd.print("Demo Gun:3");
+
+        lcd.setCursor(0,1);
+        lcd.print("Durum:RISKLI");
+      }
+
+      delay(1500);
+    }
+
+
+
+    // ================= ALARM SISTEMI =================
+
+    // Sicaklik yuksek veya sure riskliyse alarm aktif
+    if(sicaklikYuksek || sureRiskli) {
+
+      digitalWrite(kir, HIGH);
+
+      digitalWrite(buz, HIGH);
+    }
+
+    else {
+
+      digitalWrite(kir, LOW);
+
+      digitalWrite(buz, LOW);
+    }
+
+
+
+    // Onceki durumlari kaydet
+    oncekiUrunVar = urunVar;
+
+    oncekiKapakKapali = true;
   }
 }
