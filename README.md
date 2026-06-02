@@ -1,5 +1,5 @@
 # FreshGuard – Akıllı Gıda Bozulma Riski Takip Sistemi
-
+Arduino tabanlı akıllı gıda bozulma riski takip sistemi.
 
 📚 Ders: BOZ214 – Fiziksel Programlama  
 🛠️ Proje Türü: Final Projesi  
