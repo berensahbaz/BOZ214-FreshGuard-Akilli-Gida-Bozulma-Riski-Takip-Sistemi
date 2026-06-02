@@ -476,7 +476,7 @@ Bu proje fiziksel donanım üzerinde çalışmaktadır. Kodun çalıştırılmas
 
 Arduino IDE üzerinden aşağıdaki .ino dosyası açılır:
 
-proje_v5.ino
+FreshGuard.ino
 
 ### 2. Gerekli Kütüphaneleri Kurma
 
